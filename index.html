@@ -426,19 +426,7 @@
   btnResume.addEventListener('click', () => send({ cmd: 'resume'      }));
 
   btnEstop.addEventListener('click', () => {
-    // Extra confirmation: second tap within 2 s sends the command.
-    if (btnEstop.dataset.armed === '1') {
-      send({ cmd: 'estop' });
-      btnEstop.dataset.armed = '0';
-      btnEstop.textContent = '⛔ E-STOP';
-    } else {
-      btnEstop.dataset.armed = '1';
-      btnEstop.textContent = '⛔ TAP AGAIN';
-      setTimeout(() => {
-        btnEstop.dataset.armed = '0';
-        btnEstop.textContent = '⛔ E-STOP';
-      }, 2000);
-    }
+    send({ cmd: 'estop' });
   });
 
   // -------------------------------------------------------------------------

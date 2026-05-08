@@ -71,6 +71,7 @@ if LINUXCNC_AVAILABLE:
     INTERP_IDLE = linuxcnc.INTERP_IDLE
     INTERP_RUNNING = linuxcnc.INTERP_READING  # LinuxCNC exposes this as INTERP_READING
     INTERP_PAUSED = linuxcnc.INTERP_PAUSED
+    MODE_AUTO = linuxcnc.MODE_AUTO
     AUTO_RUN = linuxcnc.AUTO_RUN
     AUTO_PAUSE = linuxcnc.AUTO_PAUSE
     AUTO_RESUME = linuxcnc.AUTO_RESUME
@@ -82,6 +83,7 @@ else:
     INTERP_IDLE = 1
     INTERP_RUNNING = 2
     INTERP_PAUSED = 3
+    MODE_AUTO = 1
     AUTO_RUN = 0
     AUTO_PAUSE = 1
     AUTO_RESUME = 2
@@ -158,17 +160,26 @@ def _dispatch_command(msg: dict) -> str | None:
     cmd = msg.get("cmd")
 
     if cmd == "cycle_start":
+        _cmd.mode(MODE_AUTO)
+        _cmd.wait_complete()
         _cmd.auto(AUTO_RUN, 0)
 
     elif cmd == "feed_hold":
+        _cmd.mode(MODE_AUTO)
+        _cmd.wait_complete()
         _cmd.auto(AUTO_PAUSE)
 
     elif cmd == "resume":
+        _cmd.mode(MODE_AUTO)
+        _cmd.wait_complete()
         _cmd.auto(AUTO_RESUME)
 
     elif cmd == "estop":
+        # abort() drops the motion queue immediately; state(ESTOP) then disables drives.
         # Safety: we only ever assert estop, never clear it.
+        _cmd.abort()
         _cmd.state(STATE_ESTOP)
+        _cmd.wait_complete()
 
     elif cmd == "set_feedrate":
         value = msg.get("value")
