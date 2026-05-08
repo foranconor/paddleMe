@@ -1,0 +1,7 @@
+conor@myCoolMachine:~/repos/paddleMe$ python3 server.py 
+Traceback (most recent call last):
+  File "/home/conor/repos/paddleMe/server.py", line 72, in <module>
+    INTERP_RUNNING = linuxcnc.INTERP_RUNNING
+                     ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'linuxcnc' has no attribute 'INTERP_RUNNING'. Did you mean: 'INTERP_READING'?
+
