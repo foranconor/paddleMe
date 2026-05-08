@@ -71,6 +71,7 @@ if LINUXCNC_AVAILABLE:
     INTERP_IDLE = linuxcnc.INTERP_IDLE
     INTERP_RUNNING = linuxcnc.INTERP_READING  # LinuxCNC exposes this as INTERP_READING
     INTERP_PAUSED = linuxcnc.INTERP_PAUSED
+    INTERP_WAITING = linuxcnc.INTERP_WAITING
     MODE_AUTO = linuxcnc.MODE_AUTO
     AUTO_RUN = linuxcnc.AUTO_RUN
     AUTO_PAUSE = linuxcnc.AUTO_PAUSE
@@ -83,6 +84,7 @@ else:
     INTERP_IDLE = 1
     INTERP_RUNNING = 2
     INTERP_PAUSED = 3
+    INTERP_WAITING = 4
     MODE_AUTO = 1
     AUTO_RUN = 0
     AUTO_PAUSE = 1
@@ -160,24 +162,25 @@ def _dispatch_command(msg: dict) -> str | None:
     cmd = msg.get("cmd")
 
     if cmd == "cycle_start":
+        # R in AXIS — must switch to AUTO mode before issuing run
         _cmd.mode(MODE_AUTO)
         _cmd.wait_complete()
         _cmd.auto(AUTO_RUN, 0)
 
     elif cmd == "feed_hold":
-        _cmd.mode(MODE_AUTO)
-        _cmd.wait_complete()
+        # P in AXIS — already in AUTO mode, no mode switch needed
         _cmd.auto(AUTO_PAUSE)
 
     elif cmd == "resume":
-        _cmd.mode(MODE_AUTO)
-        _cmd.wait_complete()
+        # S in AXIS — already in AUTO mode, no mode switch needed
         _cmd.auto(AUTO_RESUME)
 
-    elif cmd == "estop":
-        # abort() drops the motion queue immediately; state(ESTOP) then disables drives.
-        # Safety: we only ever assert estop, never clear it.
+    elif cmd == "stop":
+        # ESC in AXIS — abort motion, stay in current machine state
         _cmd.abort()
+
+    elif cmd == "estop":
+        # F1 in AXIS — assert estop only, never clear it
         _cmd.state(STATE_ESTOP)
         _cmd.wait_complete()
 
@@ -185,13 +188,13 @@ def _dispatch_command(msg: dict) -> str | None:
         value = msg.get("value")
         if not isinstance(value, (int, float)):
             return "set_feedrate requires a numeric value"
-        _cmd.feedrate(max(0.0, min(float(value), 1.5)))
+        _cmd.feedrate(max(0.0, min(float(value), 1.0)))
 
     elif cmd == "set_spindlerate":
         value = msg.get("value")
         if not isinstance(value, (int, float)):
             return "set_spindlerate requires a numeric value"
-        _cmd.spindleoverride(max(0.0, min(float(value), 1.5)))
+        _cmd.spindleoverride(max(0.0, min(float(value), 1.0)))
 
     else:
         return f"unknown command: {cmd!r}"

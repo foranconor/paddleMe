@@ -120,9 +120,10 @@
     button:active  { filter: brightness(.85); transform: scale(.97); }
     button:disabled { opacity: .35; cursor: not-allowed; transform: none; filter: none; }
 
-    #btn-start  { background: var(--green); color: #000; }
+    #btn-start  { background: var(--green);  color: #000; }
     #btn-hold   { background: var(--yellow); color: #000; }
     #btn-resume { background: var(--blue);   color: #fff; }
+    #btn-stop   { background: var(--muted);  color: #fff; }
     #btn-estop  {
       background: var(--red);
       color: #fff;
@@ -240,18 +241,20 @@
     </div>
   </div>
 
-  <!-- Cycle start / feed hold / resume -->
+  <!-- Run / Pause -->
   <div class="btn-row">
-    <button id="btn-start"  disabled>▶ Cycle Start</button>
-    <button id="btn-hold"   disabled>⏸ Feed Hold</button>
+    <button id="btn-start"  disabled>▶ Run</button>
+    <button id="btn-hold"   disabled>⏸ Pause</button>
   </div>
-  <div class="btn-row single">
+  <!-- Resume / Stop -->
+  <div class="btn-row">
     <button id="btn-resume" disabled>↺ Resume</button>
+    <button id="btn-stop"   disabled>■ Stop</button>
   </div>
 
-  <!-- Estop -->
+  <!-- Emergency Stop -->
   <div class="btn-row single">
-    <button id="btn-estop" disabled>⛔ E-STOP</button>
+    <button id="btn-estop" disabled>⛔ Emergency Stop</button>
   </div>
 
   <!-- Feed rate override -->
@@ -260,7 +263,7 @@
       <span class="slider-label">Feed override</span>
       <span class="slider-readout" id="feed-readout">100%</span>
     </div>
-    <input type="range" id="slider-feed" min="0" max="150" value="100" step="1" disabled />
+    <input type="range" id="slider-feed" min="0" max="100" value="100" step="1" disabled />
   </div>
 
   <!-- Spindle override -->
@@ -269,7 +272,7 @@
       <span class="slider-label">Spindle override</span>
       <span class="slider-readout" id="spindle-readout">100%</span>
     </div>
-    <input type="range" id="slider-spindle" min="0" max="150" value="100" step="1" disabled />
+    <input type="range" id="slider-spindle" min="0" max="100" value="100" step="1" disabled />
   </div>
 
   <!-- Error toast -->
@@ -292,6 +295,7 @@
   const btnStart      = document.getElementById('btn-start');
   const btnHold       = document.getElementById('btn-hold');
   const btnResume     = document.getElementById('btn-resume');
+  const btnStop       = document.getElementById('btn-stop');
   const btnEstop      = document.getElementById('btn-estop');
 
   const sliderFeed    = document.getElementById('slider-feed');
@@ -361,8 +365,9 @@
   // -------------------------------------------------------------------------
   // LinuxCNC numeric constants mirrored from the server
   const INTERP_IDLE    = 1;
-  const INTERP_RUNNING = 2;
+  const INTERP_RUNNING = 2;  // INTERP_READING in LinuxCNC
   const INTERP_PAUSED  = 3;
+  const INTERP_WAITING = 4;
 
   // task_state values: 1=ESTOP 2=ESTOP_RESET 3=OFF 4=ON
   const TASK_ON = 4;
@@ -390,16 +395,18 @@
       spindleReadout.textContent = pct(s.spindlerate);
     }
 
-    // Button enable logic
+    // Button enable logic — mirroring AXIS keyboard shortcut conditions
     const machineOn = s.task_state === TASK_ON;
-    const running   = s.interp_state === INTERP_RUNNING;
-    const paused    = s.interp_state === INTERP_PAUSED;
     const idle      = s.interp_state === INTERP_IDLE;
+    const paused    = s.interp_state === INTERP_PAUSED;
+    // Interp cycles between READING and WAITING while a program runs
+    const active    = s.interp_state === INTERP_RUNNING || s.interp_state === INTERP_WAITING;
 
-    btnStart.disabled  = !(machineOn && idle);
-    btnHold.disabled   = !(machineOn && running);
-    btnResume.disabled = !(machineOn && paused);
-    btnEstop.disabled  = false;   // always available regardless of state
+    btnStart.disabled  = !(machineOn && idle);         // R
+    btnHold.disabled   = !(machineOn && active);        // P
+    btnResume.disabled = !(machineOn && paused);        // S
+    btnStop.disabled   = !(machineOn && (active || paused)); // ESC
+    btnEstop.disabled  = false;                         // F1 — always available
 
     sliderFeed.disabled   = !machineOn;
     sliderSpindle.disabled= !machineOn;
@@ -412,7 +419,7 @@
   // -------------------------------------------------------------------------
   function setControlsEnabled(on) {
     if (!on) {
-      [btnStart, btnHold, btnResume, btnEstop,
+      [btnStart, btnHold, btnResume, btnStop, btnEstop,
        sliderFeed, sliderSpindle].forEach(el => el.disabled = true);
     }
     // On reconnect the next status message re-enables appropriately.
@@ -424,10 +431,8 @@
   btnStart.addEventListener('click',  () => send({ cmd: 'cycle_start' }));
   btnHold.addEventListener('click',   () => send({ cmd: 'feed_hold'   }));
   btnResume.addEventListener('click', () => send({ cmd: 'resume'      }));
-
-  btnEstop.addEventListener('click', () => {
-    send({ cmd: 'estop' });
-  });
+  btnStop.addEventListener('click',   () => send({ cmd: 'stop'        }));
+  btnEstop.addEventListener('click',  () => send({ cmd: 'estop'       }));
 
   // -------------------------------------------------------------------------
   // Slider handlers — send on release (pointerup / touchend) so we don't
