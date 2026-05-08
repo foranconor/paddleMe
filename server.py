@@ -42,7 +42,7 @@ class _StubStat:
     task_state = 2      # STATE_ON
     interp_state = 1    # INTERP_IDLE
     feedrate = 1.0
-    spindlerate = 1.0
+    spindle = [{"override": 1.0}]
 
     def poll(self) -> None:
         pass
@@ -132,7 +132,7 @@ def _build_status() -> dict:
         "interp_state": _stat.interp_state,
         "interp_state_label": _INTERP_STATE_LABELS.get(_stat.interp_state, "UNKNOWN"),
         "feedrate": round(_stat.feedrate, 3),
-        "spindlerate": round(_stat.spindlerate, 3),
+        "spindlerate": round(_stat.spindle[0]["override"], 3),
     }
 
 
