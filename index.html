@@ -482,8 +482,7 @@
   btnStop.addEventListener('click',   () => send({ cmd: 'stop'        }));
 
   // -------------------------------------------------------------------------
-  // Slider handlers — send on release (pointerup / touchend) so we don't
-  // flood the server while dragging.
+  // Slider handlers — both send on every input event for live control.
   // -------------------------------------------------------------------------
   let draggingFeed    = false;
   let draggingSpindle = false;
@@ -498,11 +497,9 @@
   sliderSpindle.addEventListener('pointerdown', () => { draggingSpindle = true; });
   sliderSpindle.addEventListener('input', () => {
     spindleReadout.textContent = `${sliderSpindle.value}%`;
-  });
-  sliderSpindle.addEventListener('pointerup', () => {
-    draggingSpindle = false;
     send({ cmd: 'set_spindlerate', value: sliderSpindle.value / 100 });
   });
+  sliderSpindle.addEventListener('pointerup', () => { draggingSpindle = false; });
 
   // -------------------------------------------------------------------------
   // Boot
