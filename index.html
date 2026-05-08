@@ -124,13 +124,6 @@
     #btn-hold   { background: var(--yellow); color: #000; }
     #btn-resume { background: var(--blue);   color: #fff; }
     #btn-stop   { background: var(--muted);  color: #fff; }
-    #btn-estop  {
-      background: var(--red);
-      color: #fff;
-      font-size: 24px;
-      height: calc(var(--btn-h) + 16px);
-      border: 3px solid #ff7070;
-    }
 
     /* ------------------------------------------------------------------ */
     /* Sliders                                                             */
@@ -193,6 +186,34 @@
     }
 
     /* ------------------------------------------------------------------ */
+    /* Subroutine section                                                  */
+    /* ------------------------------------------------------------------ */
+    .section-header {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .btn-sub {
+      flex: 1 1 calc(50% - 6px);
+      height: var(--btn-h);
+      border: none;
+      border-radius: var(--radius);
+      font-size: 18px;
+      font-weight: 700;
+      background: #2d3748;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+      transition: filter .1s, transform .08s;
+    }
+
+    .btn-sub:active  { filter: brightness(.85); transform: scale(.97); }
+    .btn-sub:disabled { opacity: .35; cursor: not-allowed; transform: none; filter: none; }
+
+    /* ------------------------------------------------------------------ */
     /* Error toast                                                         */
     /* ------------------------------------------------------------------ */
     #toast {
@@ -252,10 +273,6 @@
     <button id="btn-stop"   disabled>■ Stop</button>
   </div>
 
-  <!-- Emergency Stop -->
-  <div class="btn-row single">
-    <button id="btn-estop" disabled>⛔ Emergency Stop</button>
-  </div>
 
   <!-- Feed rate override -->
   <div class="slider-group">
@@ -273,6 +290,12 @@
       <span class="slider-readout" id="spindle-readout">100%</span>
     </div>
     <input type="range" id="slider-spindle" min="0" max="100" value="100" step="1" disabled />
+  </div>
+
+  <!-- Subroutine buttons (rendered dynamically from server config) -->
+  <div id="sub-section" style="display:none">
+    <div class="section-header">Subroutines</div>
+    <div class="btn-row" id="sub-btns" style="flex-wrap:wrap; gap:12px"></div>
   </div>
 
   <!-- Error toast -->
@@ -296,7 +319,10 @@
   const btnHold       = document.getElementById('btn-hold');
   const btnResume     = document.getElementById('btn-resume');
   const btnStop       = document.getElementById('btn-stop');
-  const btnEstop      = document.getElementById('btn-estop');
+
+  const subSection    = document.getElementById('sub-section');
+  const subBtnsEl     = document.getElementById('sub-btns');
+  let   subBtns       = [];
 
   const sliderFeed    = document.getElementById('slider-feed');
   const feedReadout   = document.getElementById('feed-readout');
@@ -355,6 +381,7 @@
       let msg;
       try { msg = JSON.parse(evt.data); } catch { return; }
 
+      if (msg.type === 'config') handleConfig(msg);
       if (msg.type === 'status') handleStatus(msg);
       if (msg.type === 'error')  showToast(msg.message);
     };
@@ -363,6 +390,25 @@
   // -------------------------------------------------------------------------
   // Status rendering
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Config handler — renders subroutine buttons from server list
+  // -------------------------------------------------------------------------
+  function handleConfig(cfg) {
+    subBtnsEl.innerHTML = '';
+    subBtns = [];
+    if (!cfg.subroutines || cfg.subroutines.length === 0) return;
+    for (const sub of cfg.subroutines) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-sub';
+      btn.textContent = sub.label;
+      btn.disabled = true;
+      btn.addEventListener('click', () => send({ cmd: 'mdi', mdi: sub.mdi }));
+      subBtnsEl.appendChild(btn);
+      subBtns.push(btn);
+    }
+    subSection.style.display = 'block';
+  }
+
   // LinuxCNC numeric constants mirrored from the server
   const INTERP_IDLE    = 1;
   const INTERP_RUNNING = 2;  // INTERP_READING in LinuxCNC
@@ -406,10 +452,12 @@
     btnHold.disabled   = !(machineOn && active);        // P
     btnResume.disabled = !(machineOn && paused);        // S
     btnStop.disabled   = !(machineOn && (active || paused)); // ESC
-    btnEstop.disabled  = false;                         // F1 — always available
 
     sliderFeed.disabled   = !machineOn;
     sliderSpindle.disabled= !machineOn;
+
+    // Subroutines only available when machine is on and idle
+    subBtns.forEach(b => b.disabled = !(machineOn && idle));
   }
 
   function pct(v) { return `${Math.round(v * 100)}%`; }
@@ -419,8 +467,8 @@
   // -------------------------------------------------------------------------
   function setControlsEnabled(on) {
     if (!on) {
-      [btnStart, btnHold, btnResume, btnStop, btnEstop,
-       sliderFeed, sliderSpindle].forEach(el => el.disabled = true);
+      [btnStart, btnHold, btnResume, btnStop,
+       sliderFeed, sliderSpindle, ...subBtns].forEach(el => el.disabled = true);
     }
     // On reconnect the next status message re-enables appropriately.
   }
@@ -432,7 +480,6 @@
   btnHold.addEventListener('click',   () => send({ cmd: 'feed_hold'   }));
   btnResume.addEventListener('click', () => send({ cmd: 'resume'      }));
   btnStop.addEventListener('click',   () => send({ cmd: 'stop'        }));
-  btnEstop.addEventListener('click',  () => send({ cmd: 'estop'       }));
 
   // -------------------------------------------------------------------------
   // Slider handlers — send on release (pointerup / touchend) so we don't

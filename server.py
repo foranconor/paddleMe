@@ -31,6 +31,14 @@ except ImportError:
 
 POLL_INTERVAL = 0.1  # seconds between stat polls
 
+# ---------------------------------------------------------------------------
+# Subroutine buttons — edit this list to add/remove buttons in the UI.
+# Each entry becomes a button that calls the MDI command via MODE_MDI.
+# ---------------------------------------------------------------------------
+SUBROUTINE_BUTTONS = [
+    {"label": "Park", "mdi": "o<park> call"},
+]
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger("paddleMe")
 
@@ -61,6 +69,15 @@ class _StubCommand:
     def state(self, value: int) -> None:
         log.info("STUB cmd.state(%s)", value)
 
+    def mode(self, value: int) -> None:
+        log.info("STUB cmd.mode(%s)", value)
+
+    def mdi(self, value: str) -> None:
+        log.info("STUB cmd.mdi(%r)", value)
+
+    def wait_complete(self) -> None:
+        pass
+
 
 if LINUXCNC_AVAILABLE:
     _stat = linuxcnc.stat()
@@ -73,6 +90,7 @@ if LINUXCNC_AVAILABLE:
     INTERP_PAUSED = linuxcnc.INTERP_PAUSED
     INTERP_WAITING = linuxcnc.INTERP_WAITING
     MODE_AUTO = linuxcnc.MODE_AUTO
+    MODE_MDI  = linuxcnc.MODE_MDI
     AUTO_RUN = linuxcnc.AUTO_RUN
     AUTO_PAUSE = linuxcnc.AUTO_PAUSE
     AUTO_RESUME = linuxcnc.AUTO_RESUME
@@ -85,7 +103,8 @@ else:
     INTERP_RUNNING = 2
     INTERP_PAUSED = 3
     INTERP_WAITING = 4
-    MODE_AUTO = 1
+    MODE_AUTO = 2
+    MODE_MDI  = 3
     AUTO_RUN = 0
     AUTO_PAUSE = 1
     AUTO_RESUME = 2
@@ -154,6 +173,10 @@ async def _poll_loop() -> None:
         await asyncio.sleep(POLL_INTERVAL)
 
 
+# Whitelist of allowed MDI strings, derived from config.
+_ALLOWED_MDI: set[str] = {btn["mdi"] for btn in SUBROUTINE_BUTTONS}
+
+
 # ---------------------------------------------------------------------------
 # Command dispatch
 # ---------------------------------------------------------------------------
@@ -179,10 +202,13 @@ def _dispatch_command(msg: dict) -> str | None:
         # ESC in AXIS — abort motion, stay in current machine state
         _cmd.abort()
 
-    elif cmd == "estop":
-        # F1 in AXIS — assert estop only, never clear it
-        _cmd.state(STATE_ESTOP)
+    elif cmd == "mdi":
+        mdi_str = msg.get("mdi", "").strip()
+        if mdi_str not in _ALLOWED_MDI:
+            return f"MDI command not allowed: {mdi_str!r}"
+        _cmd.mode(MODE_MDI)
         _cmd.wait_complete()
+        _cmd.mdi(mdi_str)
 
     elif cmd == "set_feedrate":
         value = msg.get("value")
@@ -226,7 +252,8 @@ async def websocket_endpoint(ws: WebSocket):
     _clients.add(ws)
     log.info("Client connected  total=%d", len(_clients))
 
-    # Send current status immediately so the UI doesn't wait for the next poll.
+    # Send button config then current status so the UI is ready before data arrives.
+    await ws.send_text(json.dumps({"type": "config", "subroutines": SUBROUTINE_BUTTONS}))
     try:
         status = await asyncio.to_thread(_build_status)
         await ws.send_text(json.dumps(status))
