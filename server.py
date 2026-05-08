@@ -69,7 +69,7 @@ if LINUXCNC_AVAILABLE:
     # Numeric constants
     STATE_ESTOP = linuxcnc.STATE_ESTOP
     INTERP_IDLE = linuxcnc.INTERP_IDLE
-    INTERP_RUNNING = linuxcnc.INTERP_RUNNING
+    INTERP_RUNNING = linuxcnc.INTERP_READING  # LinuxCNC exposes this as INTERP_READING
     INTERP_PAUSED = linuxcnc.INTERP_PAUSED
     AUTO_RUN = linuxcnc.AUTO_RUN
     AUTO_PAUSE = linuxcnc.AUTO_PAUSE
