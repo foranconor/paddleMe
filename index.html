@@ -491,11 +491,9 @@
   sliderFeed.addEventListener('pointerdown', () => { draggingFeed = true; });
   sliderFeed.addEventListener('input', () => {
     feedReadout.textContent = `${sliderFeed.value}%`;
-  });
-  sliderFeed.addEventListener('pointerup', () => {
-    draggingFeed = false;
     send({ cmd: 'set_feedrate', value: sliderFeed.value / 100 });
   });
+  sliderFeed.addEventListener('pointerup', () => { draggingFeed = false; });
 
   sliderSpindle.addEventListener('pointerdown', () => { draggingSpindle = true; });
   sliderSpindle.addEventListener('input', () => {
