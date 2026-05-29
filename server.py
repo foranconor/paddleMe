@@ -63,6 +63,7 @@ def _apply_feedrate() -> None:
         effective = min(_operator_feedrate, _radar_scale)
     try:
         _cmd.feedrate(effective)
+        _cmd.rapidrate(effective)
     except Exception as exc:
         log.error("feedrate apply error: %s", exc)
 
@@ -116,6 +117,9 @@ class _StubCommand:
 
     def feedrate(self, value: float) -> None:
         log.info("STUB cmd.feedrate(%s)", value)
+
+    def rapidrate(self, value: float) -> None:
+        log.info("STUB cmd.rapidrate(%s)", value)
 
     def spindleoverride(self, value: float) -> None:
         log.info("STUB cmd.spindleoverride(%s)", value)
