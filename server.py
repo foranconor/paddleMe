@@ -9,12 +9,15 @@ Serves index.html and a WebSocket endpoint that:
 import asyncio
 import json
 import logging
+import threading
+import time
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Optional
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
 # LinuxCNC import — falls back to a stub so the server can be developed and
@@ -29,7 +32,8 @@ except ImportError:
     logging.warning("linuxcnc module not found — running in stub/demo mode")
 
 
-POLL_INTERVAL = 0.1  # seconds between stat polls
+POLL_INTERVAL      = 0.1  # seconds between stat polls
+RADAR_WATCHDOG_S   = 2.0  # restore FO if no radar ping within this window
 
 # ---------------------------------------------------------------------------
 # Subroutine buttons — edit this list to add/remove buttons in the UI.
@@ -41,6 +45,56 @@ SUBROUTINE_BUTTONS = [
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger("paddleMe")
+
+# ---------------------------------------------------------------------------
+# Feed override state
+# All writes and compound reads go through _feedrate_lock so the GIL alone
+# isn't relied upon for correctness.
+# ---------------------------------------------------------------------------
+_feedrate_lock     = threading.Lock()
+_operator_feedrate: float        = 1.0   # last value set by the operator via pendant
+_radar_scale:       float        = 1.0   # limit imposed by safety radar (1.0 = no limit)
+_radar_last_ping:   Optional[float] = None  # monotonic time of last /radar POST
+_radar_state:       str          = "clear"
+
+
+def _apply_feedrate() -> None:
+    with _feedrate_lock:
+        effective = min(_operator_feedrate, _radar_scale)
+    try:
+        _cmd.feedrate(effective)
+    except Exception as exc:
+        log.error("feedrate apply error: %s", exc)
+
+
+def _update_radar(state: str, scale: float) -> None:
+    global _radar_scale, _radar_last_ping, _radar_state
+    with _feedrate_lock:
+        _radar_last_ping = time.monotonic()
+        _radar_scale     = scale
+        _radar_state     = state
+    _apply_feedrate()
+
+
+def _check_radar_watchdog() -> None:
+    global _radar_scale, _radar_state
+    with _feedrate_lock:
+        if _radar_last_ping is None:
+            return
+        if (time.monotonic() - _radar_last_ping) <= RADAR_WATCHDOG_S:
+            return
+        if _radar_scale >= 1.0:
+            return
+        _radar_scale = 1.0
+        _radar_state = "clear"
+        log.warning("radar watchdog — restoring feed override to 1.0")
+    _apply_feedrate()
+
+
+class RadarUpdate(BaseModel):
+    state:      str
+    scale:      float
+    closest_mm: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +202,11 @@ _INTERP_STATE_LABELS = {
 
 def _build_status() -> dict:
     _stat.poll()
+    with _feedrate_lock:
+        radar_scale = _radar_scale
+        radar_state = _radar_state
+        radar_ping  = _radar_last_ping
+    radar_active = radar_ping is not None and (time.monotonic() - radar_ping) < RADAR_WATCHDOG_S
     return {
         "type": "status",
         "task_state": _stat.task_state,
@@ -156,6 +215,8 @@ def _build_status() -> dict:
         "interp_state_label": _INTERP_STATE_LABELS.get(_stat.interp_state, "UNKNOWN"),
         "feedrate": round(_stat.feedrate, 3),
         "spindlerate": round(_stat.spindle[0]["override"], 3),
+        "radar_state": radar_state if radar_active else "offline",
+        "radar_scale": round(radar_scale, 2),
     }
 
 
@@ -171,6 +232,15 @@ async def _poll_loop() -> None:
         except Exception as exc:
             log.error("Poll error: %s", exc)
         await asyncio.sleep(POLL_INTERVAL)
+
+
+async def _radar_watchdog_loop() -> None:
+    while True:
+        await asyncio.sleep(0.5)
+        try:
+            await asyncio.to_thread(_check_radar_watchdog)
+        except Exception as exc:
+            log.error("Radar watchdog error: %s", exc)
 
 
 # Whitelist of allowed MDI strings, derived from config.
@@ -214,7 +284,10 @@ def _dispatch_command(msg: dict) -> str | None:
         value = msg.get("value")
         if not isinstance(value, (int, float)):
             return "set_feedrate requires a numeric value"
-        _cmd.feedrate(max(0.0, min(float(value), 1.0)))
+        global _operator_feedrate
+        with _feedrate_lock:
+            _operator_feedrate = max(0.0, min(float(value), 1.0))
+        _apply_feedrate()
 
     elif cmd == "set_spindlerate":
         value = msg.get("value")
@@ -233,9 +306,11 @@ def _dispatch_command(msg: dict) -> str | None:
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    task = asyncio.create_task(_poll_loop())
+    poll_task     = asyncio.create_task(_poll_loop())
+    watchdog_task = asyncio.create_task(_radar_watchdog_loop())
     yield
-    task.cancel()
+    poll_task.cancel()
+    watchdog_task.cancel()
 
 
 app = FastAPI(lifespan=_lifespan)
@@ -244,6 +319,13 @@ app = FastAPI(lifespan=_lifespan)
 @app.get("/")
 async def index():
     return FileResponse("index.html")
+
+
+@app.post("/radar")
+async def radar_update(update: RadarUpdate):
+    scale = max(0.0, min(update.scale, 1.0))
+    await asyncio.to_thread(_update_radar, update.state, scale)
+    return {"ok": True}
 
 
 @app.websocket("/ws")
